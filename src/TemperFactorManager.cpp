@@ -140,13 +140,12 @@ std::string TemperFactorManager::AsRomanNumeral(UInt32 a_level, bool a_isWeapon)
 
 const char* TemperFactorManager::GetTemperFactor(float a_factor, bool a_isWeapon)
 {
-	if (a_factor <= 0.0 || a_factor == 1.0) {
+	auto fLevel = std::roundf((a_factor - 1.0) * 10.0);
+	if (fLevel < 1.0) {
 		return 0;
 	}
 
-	a_factor -= 1.0;
-	UInt32 level = static_cast<UInt32>(std::roundf(a_factor * 10.0));
-
+	auto level = static_cast<UInt32>(fLevel);
 	auto it = _stringCache.insert(_formatterMap(level, a_isWeapon));
 	return it.first != _stringCache.end() ? it.first->c_str() : 0;
 }
