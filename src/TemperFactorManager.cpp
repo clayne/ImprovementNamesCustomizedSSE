@@ -1,70 +1,36 @@
 #include "TemperFactorManager.h"
 
-#include "skse64_common/BranchTrampoline.h"
-
 #include <cmath>
 #include <cstdio>
 #include <set>
+#include <string>
+#include <string_view>
 #include <typeinfo>
 
 #include "Settings.h"
 
 #include "RE/Skyrim.h"
 #include "REL/Relocation.h"
+#include "SKSE/API.h"
+#include "SKSE/Trampoline.h"
 
 
 std::string TemperFactorManager::AsVanilla(UInt32 a_level, bool a_isWeapon)
 {
-	auto gameSettings = RE::GameSettingCollection::GetSingleton();
+	static GMSTCache cache;
 	switch (a_level) {
 	case 1:
-		if (a_isWeapon) {
-			auto sHealthDataPrefixWeap1 = gameSettings->GetSetting("sHealthDataPrefixWeap1");
-			return sHealthDataPrefixWeap1->GetString();
-		} else {
-			auto sHealthDataPrefixArmo1 = gameSettings->GetSetting("sHealthDataPrefixArmo1");
-			return sHealthDataPrefixArmo1->GetString();
-		}
+		return a_isWeapon ? cache("sHealthDataPrefixWeap1") : cache("sHealthDataPrefixArmo1");
 	case 2:
-		if (a_isWeapon) {
-			auto sHealthDataPrefixWeap2 = gameSettings->GetSetting("sHealthDataPrefixWeap2");
-			return sHealthDataPrefixWeap2->GetString();
-		} else {
-			auto sHealthDataPrefixArmo2 = gameSettings->GetSetting("sHealthDataPrefixArmo2");
-			return sHealthDataPrefixArmo2->GetString();
-		}
+		return a_isWeapon ? cache("sHealthDataPrefixWeap2") : cache("sHealthDataPrefixArmo2");
 	case 3:
-		if (a_isWeapon) {
-			auto sHealthDataPrefixWeap3 = gameSettings->GetSetting("sHealthDataPrefixWeap3");
-			return sHealthDataPrefixWeap3->GetString();
-		} else {
-			auto sHealthDataPrefixArmo3 = gameSettings->GetSetting("sHealthDataPrefixArmo3");
-			return sHealthDataPrefixArmo3->GetString();
-		}
+		return a_isWeapon ? cache("sHealthDataPrefixWeap3") : cache("sHealthDataPrefixArmo3");
 	case 4:
-		if (a_isWeapon) {
-			auto sHealthDataPrefixWeap4 = gameSettings->GetSetting("sHealthDataPrefixWeap4");
-			return sHealthDataPrefixWeap4->GetString();
-		} else {
-			auto sHealthDataPrefixArmo4 = gameSettings->GetSetting("sHealthDataPrefixArmo4");
-			return sHealthDataPrefixArmo4->GetString();
-		}
+		return a_isWeapon ? cache("sHealthDataPrefixWeap4") : cache("sHealthDataPrefixArmo4");
 	case 5:
-		if (a_isWeapon) {
-			auto sHealthDataPrefixWeap5 = gameSettings->GetSetting("sHealthDataPrefixWeap5");
-			return sHealthDataPrefixWeap5->GetString();
-		} else {
-			auto sHealthDataPrefixArmo5 = gameSettings->GetSetting("sHealthDataPrefixArmo5");
-			return sHealthDataPrefixArmo5->GetString();
-		}
+		return a_isWeapon ? cache("sHealthDataPrefixWeap5") : cache("sHealthDataPrefixArmo5");
 	default:
-		if (a_isWeapon) {
-			auto sHealthDataPrefixWeap6 = gameSettings->GetSetting("sHealthDataPrefixWeap6");
-			return sHealthDataPrefixWeap6->GetString();
-		} else {
-			auto sHealthDataPrefixArmo6 = gameSettings->GetSetting("sHealthDataPrefixArmo6");
-			return sHealthDataPrefixArmo6->GetString();
-		}
+		return a_isWeapon ? cache("sHealthDataPrefixWeap6") : cache("sHealthDataPrefixArmo6");
 	}
 }
 
@@ -108,7 +74,7 @@ std::string TemperFactorManager::AsCustom(UInt32 a_level, bool a_isWeapon)
 
 std::string TemperFactorManager::AsRomanNumeral(UInt32 a_level, bool a_isWeapon)
 {
-	constexpr std::pair<UInt32, const char*> MILESTONES[] = {
+	constexpr std::pair<UInt32, std::string_view> MILESTONES[] = {
 		{ 1, "I" },
 		{ 4, "IV" },
 		{ 5, "V" },
@@ -188,13 +154,14 @@ void TemperFactorManager::sprintf_s(char* a_buffer, std::size_t a_buffSize, cons
 void TemperFactorManager::InstallHooks()
 {
 	// E8 ? ? ? ? F3 0F 11 73 2C
-	constexpr std::uintptr_t FUNC_ADDR = 0x0013CC20;	// 1_5_80
+	constexpr std::uintptr_t FUNC_ADDR = 0x0013CC20;	// 1_5_97
 	REL::Offset<std::uintptr_t> funcBase(FUNC_ADDR);
 
-	g_branchTrampoline.Write5Call(funcBase.GetAddress() + 0x59, unrestricted_cast<std::uintptr_t>(&TemperFactorManager::GetTemperFactor));
-	g_branchTrampoline.Write5Call(funcBase.GetAddress() + 0x1A6, unrestricted_cast<std::uintptr_t>(&TemperFactorManager::VFormat));
-	g_branchTrampoline.Write5Call(funcBase.GetAddress() + 0x177, unrestricted_cast<std::uintptr_t>(&TemperFactorManager::VFormat));
-	g_branchTrampoline.Write5Call(funcBase.GetAddress() + 0x13D, unrestricted_cast<std::uintptr_t>(&TemperFactorManager::sprintf_s));
+	auto trampoline = SKSE::GetTrampoline();
+	trampoline->Write5Call(funcBase.GetAddress() + 0x59, &TemperFactorManager::GetTemperFactor);
+	trampoline->Write5Call(funcBase.GetAddress() + 0x1A6, &TemperFactorManager::VFormat);
+	trampoline->Write5Call(funcBase.GetAddress() + 0x177, &TemperFactorManager::VFormat);
+	trampoline->Write5Call(funcBase.GetAddress() + 0x13D, &TemperFactorManager::sprintf_s);
 
 	_MESSAGE("Installed hooks for %s", typeid(TemperFactorManager).name());
 }
@@ -219,6 +186,52 @@ std::string TemperFactorManager::FormatterMap::operator()(UInt32 a_factor, bool 
 		return it->second(a_factor, a_isWeapon);
 	} else {
 		return TemperFactorManager::AsVanilla(a_factor, a_isWeapon);
+	}
+}
+
+
+TemperFactorManager::GMSTCache::GMSTCache() :
+	_map()
+{
+	constexpr std::string_view NAMES[] = {
+		"sHealthDataPrefixWeap1",
+		"sHealthDataPrefixArmo1",
+		"sHealthDataPrefixWeap2",
+		"sHealthDataPrefixArmo2",
+		"sHealthDataPrefixWeap3",
+		"sHealthDataPrefixArmo3",
+		"sHealthDataPrefixWeap4",
+		"sHealthDataPrefixArmo4",
+		"sHealthDataPrefixWeap5",
+		"sHealthDataPrefixArmo5",
+		"sHealthDataPrefixWeap6",
+		"sHealthDataPrefixArmo6"
+	};
+
+	constexpr std::size_t SIZE = std::extent<decltype(NAMES)>::value;
+
+	for (std::size_t i = 0; i < SIZE; ++i) {
+		Insert(std::string(NAMES[i]));
+	}
+}
+
+
+std::string TemperFactorManager::GMSTCache::operator()(std::string_view a_name)
+{
+	auto it = _map.find(a_name);
+	return it != _map.end() ? it->second->GetString() : "";
+}
+
+
+void TemperFactorManager::GMSTCache::Insert(std::string a_name)
+{
+	auto gmst = RE::GameSettingCollection::GetSingleton();
+	auto setting = gmst->GetSetting(a_name.c_str());
+	if (setting) {
+		auto it = _map.insert(std::make_pair(std::move(a_name), setting));
+		assert(it.second);
+	} else {
+		assert(false);
 	}
 }
 
