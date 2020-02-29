@@ -46,13 +46,13 @@ std::string TemperFactorManager::AsVanillaPlus(UInt32 a_level, bool a_isWeapon)
 }
 
 
-std::string TemperFactorManager::AsPlusN(UInt32 a_level, bool a_isWeapon)
+std::string TemperFactorManager::AsPlusN(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
 {
 	return std::string("+") + std::to_string(a_level);
 }
 
 
-std::string TemperFactorManager::AsInternal(UInt32 a_level, bool a_isWeapon)
+std::string TemperFactorManager::AsInternal(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
 {
 	std::string result = std::to_string((a_level / 10) + 1);
 	result += ".";
@@ -61,18 +61,18 @@ std::string TemperFactorManager::AsInternal(UInt32 a_level, bool a_isWeapon)
 }
 
 
-std::string TemperFactorManager::AsCustom(UInt32 a_level, bool a_isWeapon)
+std::string TemperFactorManager::AsCustom(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
 {
 	std::size_t idx = a_level - 1;
-	if (idx < Settings::customNames.size()) {
-		return Settings::customNames[idx];
+	if (idx < Settings::customNames->size()) {
+		return (*Settings::customNames)[idx];
 	} else {
-		return Settings::customNames.empty() ? "" : Settings::customNames.back();
+		return Settings::customNames->empty() ? "" : Settings::customNames->back();
 	}
 }
 
 
-std::string TemperFactorManager::AsRomanNumeral(UInt32 a_level, bool a_isWeapon)
+std::string TemperFactorManager::AsRomanNumeral(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
 {
 	constexpr std::pair<UInt32, std::string_view> MILESTONES[] = {
 		{ 1, "I" },
@@ -120,9 +120,9 @@ const char* TemperFactorManager::GetTemperFactor(float a_factor, bool a_isWeapon
 void TemperFactorManager::VFormat(RE::BSString* a_dst, const char* a_fmt, ...)
 {
 	std::string fmt = "%s";
-	fmt += Settings::prefix;
+	fmt += *Settings::prefix;
 	fmt += "%s";
-	fmt += Settings::postfix;
+	fmt += *Settings::postfix;
 
 	std::va_list args1;
 	va_start(args1, a_fmt);
@@ -140,9 +140,9 @@ void TemperFactorManager::VFormat(RE::BSString* a_dst, const char* a_fmt, ...)
 
 void TemperFactorManager::sprintf_s(char* a_buffer, std::size_t a_buffSize, const char* a_fmt, ...)
 {
-	std::string fmt = Settings::prefix;
+	std::string fmt = *Settings::prefix;
 	fmt += "%s";
-	fmt += Settings::postfix;
+	fmt += *Settings::postfix;
 
 	std::va_list args;
 	va_start(args, a_fmt);
@@ -153,9 +153,7 @@ void TemperFactorManager::sprintf_s(char* a_buffer, std::size_t a_buffSize, cons
 
 void TemperFactorManager::InstallHooks()
 {
-	// E8 ? ? ? ? F3 0F 11 73 2C
-	constexpr std::uintptr_t FUNC_ADDR = 0x0013CC20;	// 1_5_97
-	REL::Offset<std::uintptr_t> funcBase(FUNC_ADDR);
+	REL::Offset<std::uintptr_t> funcBase(REL::ID(12633));
 
 	auto trampoline = SKSE::GetTrampoline();
 	trampoline->Write5Call(funcBase.GetAddress() + 0x59, &TemperFactorManager::GetTemperFactor);
@@ -181,7 +179,7 @@ TemperFactorManager::FormatterMap::FormatterMap() :
 
 std::string TemperFactorManager::FormatterMap::operator()(UInt32 a_factor, bool a_isWeapon)
 {
-	auto it = _map.find(Settings::style);
+	auto it = _map.find(*Settings::style);
 	if (it != _map.end()) {
 		return it->second(a_factor, a_isWeapon);
 	} else {
