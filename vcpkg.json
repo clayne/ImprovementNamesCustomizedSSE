@@ -1,0 +1,12 @@
+{
+  "name": "example",
+  "version": "1",
+  "dependencies": [
+    "boost-stl-interfaces",
+    "nlohmann-json",
+    "rsm-binary-io",
+    "rsm-mmio",
+    "spdlog",
+    "xbyak"
+  ]
+}

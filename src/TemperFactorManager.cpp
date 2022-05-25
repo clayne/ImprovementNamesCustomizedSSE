@@ -1,238 +1,284 @@
 #include "TemperFactorManager.h"
 
-#include <cmath>
-#include <cstdio>
-#include <set>
-#include <string>
-#include <string_view>
-#include <typeinfo>
-
-#include "Settings.h"
-
-#include "RE/Skyrim.h"
-#include "REL/Relocation.h"
-#include "SKSE/API.h"
-#include "SKSE/Trampoline.h"
-
-
-std::string TemperFactorManager::AsVanilla(UInt32 a_level, bool a_isWeapon)
+namespace TemperFactorManager
 {
-	static GMSTCache cache;
-	switch (a_level) {
-	case 1:
-		return a_isWeapon ? cache("sHealthDataPrefixWeap1") : cache("sHealthDataPrefixArmo1");
-	case 2:
-		return a_isWeapon ? cache("sHealthDataPrefixWeap2") : cache("sHealthDataPrefixArmo2");
-	case 3:
-		return a_isWeapon ? cache("sHealthDataPrefixWeap3") : cache("sHealthDataPrefixArmo3");
-	case 4:
-		return a_isWeapon ? cache("sHealthDataPrefixWeap4") : cache("sHealthDataPrefixArmo4");
-	case 5:
-		return a_isWeapon ? cache("sHealthDataPrefixWeap5") : cache("sHealthDataPrefixArmo5");
-	default:
-		return a_isWeapon ? cache("sHealthDataPrefixWeap6") : cache("sHealthDataPrefixArmo6");
-	}
-}
+	namespace
+	{
+		namespace Styles
+		{
+			class GMSTCache
+			{
+			public:
+				GMSTCache()
+				{
+					constexpr std::array names = {
+						"sHealthDataPrefixWeap1",
+						"sHealthDataPrefixArmo1",
+						"sHealthDataPrefixWeap2",
+						"sHealthDataPrefixArmo2",
+						"sHealthDataPrefixWeap3",
+						"sHealthDataPrefixArmo3",
+						"sHealthDataPrefixWeap4",
+						"sHealthDataPrefixArmo4",
+						"sHealthDataPrefixWeap5",
+						"sHealthDataPrefixArmo5",
+						"sHealthDataPrefixWeap6",
+						"sHealthDataPrefixArmo6"
+					};
 
+					for (const auto& name : names) {
+						this->Insert(name);
+					}
+				}
 
-std::string TemperFactorManager::AsVanillaPlus(UInt32 a_level, bool a_isWeapon)
-{
-	auto result = AsVanilla(a_level, a_isWeapon);
-	if (a_level > 5) {
-		result += " ";
-		result += std::to_string(a_level - 5);
-	}
-	return result;
-}
+				[[nodiscard]] auto operator()(std::string_view a_name)
+					-> std::string
+				{
+					const auto it = this->_map.find(a_name);
+					return it != this->_map.end() ? it->second->GetString() : "";
+				}
 
+			private:
+				void Insert(const char* a_name)
+				{
+					const auto gmst = RE::GameSettingCollection::GetSingleton();
+					const auto setting = gmst->GetSetting(a_name);
+					if (setting) {
+						auto it = this->_map.emplace(a_name, setting);
+						assert(it.second);
+					} else {
+						assert(false);
+					}
+				}
 
-std::string TemperFactorManager::AsPlusN(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
-{
-	return std::string("+") + std::to_string(a_level);
-}
+				std::map<std::string_view, RE::Setting*> _map;
+			};
 
+			[[nodiscard]] inline auto AsVanilla(
+				std::uint32_t a_level,
+				bool a_isWeapon)
+				-> std::string
+			{
+				static GMSTCache cache;
+				return cache(fmt::format(
+					"sHealthDataPrefix{}{}"sv,
+					a_isWeapon ? "Weap"sv : "Armo"sv,
+					1 <= a_level && a_level <= 5 ? a_level : 6));
+			}
 
-std::string TemperFactorManager::AsInternal(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
-{
-	std::string result = std::to_string((a_level / 10) + 1);
-	result += ".";
-	result += std::to_string(a_level % 10);
-	return result;
-}
+			[[nodiscard]] inline auto AsVanillaPlus(
+				std::uint32_t a_level,
+				bool a_isWeapon)
+				-> std::string
+			{
+				auto vanilla = AsVanilla(a_level, a_isWeapon);
+				if (a_level > 5) {
+					return fmt::format("{} {}"sv, vanilla, a_level - 5);
+				} else {
+					return vanilla;
+				}
+			}
 
+			[[nodiscard]] inline auto AsPlusN(
+				std::uint32_t a_level,
+				[[maybe_unused]] bool a_isWeapon)
+				-> std::string
+			{
+				return fmt::format("+{}"sv, a_level);
+			}
 
-std::string TemperFactorManager::AsCustom(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
-{
-	std::size_t idx = a_level - 1;
-	if (idx < Settings::customNames->size()) {
-		return (*Settings::customNames)[idx];
-	} else {
-		return Settings::customNames->empty() ? "" : Settings::customNames->back();
-	}
-}
+			[[nodiscard]] inline auto AsInternal(
+				std::uint32_t a_level,
+				[[maybe_unused]] bool a_isWeapon)
+				-> std::string
+			{
+				return fmt::format(
+					"{}.{}"sv,
+					(a_level / 10) + 1,
+					a_level % 10);
+			}
 
+			[[nodiscard]] inline auto AsCustom(
+				std::uint32_t a_level,
+				[[maybe_unused]] bool a_isWeapon)
+				-> std::string
+			{
+				const std::size_t idx = a_level - 1;
+				if (idx < Settings::customNames.size()) {
+					return Settings::customNames[idx];
+				} else {
+					return Settings::customNames.empty() ? ""s : Settings::customNames.back();
+				}
+			}
 
-std::string TemperFactorManager::AsRomanNumeral(UInt32 a_level, [[maybe_unused]] bool a_isWeapon)
-{
-	constexpr std::pair<UInt32, std::string_view> MILESTONES[] = {
-		{ 1, "I" },
-		{ 4, "IV" },
-		{ 5, "V" },
-		{ 9, "IX" },
-		{ 10, "X" },
-		{ 40, "XL" },
-		{ 50, "L" },
-		{ 100, "C" },
-		{ 400, "CD" },
-		{ 500, "D" },
-		{ 900, "CM" },
-		{ 1000, "M" }
-	};
+			[[nodiscard]] inline auto AsRomanNumeral(
+				std::uint32_t a_level,
+				[[maybe_unused]] bool a_isWeapon)
+				-> std::string
+			{
+				constexpr std::array milestones = {
+					std::make_pair(1, "I"sv),
+					std::make_pair(4, "IV"sv),
+					std::make_pair(5, "V"sv),
+					std::make_pair(9, "IX"sv),
+					std::make_pair(10, "X"sv),
+					std::make_pair(40, "XL"sv),
+					std::make_pair(50, "L"sv),
+					std::make_pair(100, "C"sv),
+					std::make_pair(400, "CD"sv),
+					std::make_pair(500, "D"sv),
+					std::make_pair(900, "CM"sv),
+					std::make_pair(1000, "M"sv)
+				};
 
-	constexpr std::size_t SIZE = std::extent<decltype(MILESTONES)>::value;
+				std::string result;
+				for (const auto& [i, str] : milestones | std::views::reverse) {
+					auto div = a_level / i;
+					a_level = a_level % i;
+					while (div--) {
+						result.append(str);
+					}
+				}
 
-	std::string result;
-	for (auto i = SIZE; a_level; --i) {
-		auto div = a_level / MILESTONES[i].first;
-		a_level = a_level % MILESTONES[i].first;
-		while (div--) {
-			result += MILESTONES[i].second;
+				return result;
+			}
 		}
+
+		namespace Hooks
+		{
+			class FormatterMap
+			{
+			public:
+				FormatterMap()
+				{
+					this->_map.insert({ "Custom"sv, Styles::AsCustom });
+					this->_map.insert({ "Internal"sv, Styles::AsInternal });
+					this->_map.insert({ "PlusN"sv, Styles::AsPlusN });
+					this->_map.insert({ "RomanNumeral"sv, Styles::AsRomanNumeral });
+					this->_map.insert({ "Vanilla"sv, Styles::AsVanilla });
+					this->_map.insert({ "VanillaPlus"sv, Styles::AsVanillaPlus });
+				}
+
+				[[nodiscard]] auto operator()(
+					std::uint32_t a_factor,
+					bool a_isWeapon)
+					-> std::string
+				{
+					const auto it = this->_map.find(Settings::style);
+					if (it != this->_map.end()) {
+						return it->second(a_factor, a_isWeapon);
+					} else {
+						return Styles::AsVanilla(a_factor, a_isWeapon);
+					}
+				}
+
+			private:
+				std::map<std::string_view, std::function<std::string(std::uint32_t, bool)>> _map;
+			};
+
+			inline auto GetTemperFactor(
+				float a_factor,
+				bool a_isWeapon)
+				-> const char*
+			{
+				static std::set<std::string> cache;
+				static FormatterMap map;
+
+				const auto level = std::roundf((a_factor - 1.0f) * 10.0f);
+				if (level < 1.0) {
+					return 0;
+				}
+
+				const auto it = cache.insert(map(static_cast<std::uint32_t>(level), a_isWeapon));
+				return it.first != cache.end() ? it.first->c_str() : nullptr;
+			}
+
+			inline void VFormat(
+				RE::BSString& a_dst,
+				const char* a_fmt,
+				...)
+			{
+				const auto format = fmt::format("%s{}%s{}"sv, Settings::prefix, Settings::postfix);
+
+				std::va_list args1;
+				va_start(args1, a_fmt);
+				std::va_list args2;
+				va_copy(args2, args1);
+				std::vector<char> buf(std::vsnprintf(nullptr, 0, format.c_str(), args1) + 1);
+				va_end(args1);
+				std::vsnprintf(buf.data(), buf.size(), format.c_str(), args2);
+				va_end(args2);
+
+				a_dst = std::string_view(buf.data(), buf.size());
+			}
+
+			inline void sprintf_s(
+				char* a_buffer,
+				std::size_t a_buffSize,
+				const char* a_fmt,
+				...)
+			{
+				const auto format = fmt::format("{}%s{}"sv, Settings::prefix, Settings::postfix);
+
+				std::va_list args;
+				va_start(args, a_fmt);
+				std::vsnprintf(a_buffer, a_buffSize, format.c_str(), args);
+				va_end(args);
+			}
+		}
+
+		struct GetTemperFactorPatch :
+			public Xbyak::CodeGenerator
+		{
+			GetTemperFactorPatch()
+			{
+				push(r9);       // volatile
+				sub(rsp, 0x8);  // alignment
+
+				movaps(xmm0, xmm6);
+				mov(dl, r9b);
+				mov(rax, reinterpret_cast<std::uintptr_t>(Hooks::GetTemperFactor));
+				call(rax);
+				mov(rbx, rax);  // temper factor string
+
+				add(rsp, 0x8);
+				pop(r9);
+			}
+		};
 	}
 
-	return result;
-}
+	void Install()
+	{
+		const auto base = REL::ID(12775).address();  // ExtraTextDisplayData::BuildDisplayName
 
+		auto& trampoline = SKSE::GetTrampoline();
 
-const char* TemperFactorManager::GetTemperFactor(float a_factor, bool a_isWeapon)
-{
-	auto fLevel = std::roundf((a_factor - 1.0) * 10.0);
-	if (fLevel < 1.0) {
-		return 0;
-	}
+		{
+			constexpr std::size_t begin = 0x55;
+			constexpr std::size_t end = 0x149;
 
-	auto level = static_cast<UInt32>(fLevel);
-	auto it = _stringCache.insert(_formatterMap(level, a_isWeapon));
-	return it.first != _stringCache.end() ? it.first->c_str() : 0;
-}
+			REL::make_pattern<"48 8B DD 0F 57 C0 0F 2F F0 0F 86 ?? ?? ?? ?? 0F 2E 35 ?? ?? ?? ?? 0F 84 ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 0F 2F 70 08 72 17 45 84 C9 48 8B 05 ?? ?? ?? ?? 75 07 48 8B 05 ?? ?? ?? ?? 48 8B 58 08 48 8B 05 ?? ?? ?? ?? 0F 2F 70 08 72 17 45 84 C9 48 8B 05 ?? ?? ?? ?? 75 07 48 8B 05 ?? ?? ?? ?? 48 8B 58 08 48 8B 05 ?? ?? ?? ?? 0F 2F 70 08 72 17 45 84 C9 48 8B 05 ?? ?? ?? ?? 75 07 48 8B 05 ?? ?? ?? ?? 48 8B 58 08 48 8B 05 ?? ?? ?? ?? 0F 2F 70 08 72 17 45 84 C9 48 8B 05 ?? ?? ?? ?? 75 07 48 8B 05 ?? ?? ?? ?? 48 8B 58 08 48 8B 05 ?? ?? ?? ?? 0F 2F 70 08 72 17 45 84 C9 48 8B 05 ?? ?? ?? ?? 75 07 48 8B 05 ?? ?? ?? ?? 48 8B 58 08 48 8B 05 ?? ?? ?? ?? 0F 2F 70 08 72 17 45 84 C9 48 8B 05 ?? ?? ?? ?? 75 07 48 8B 05 ?? ?? ?? ?? 48 8B 58 08">()
+				.match_or_fail(base + begin);
 
+			GetTemperFactorPatch p;
+			p.ready();
 
-void TemperFactorManager::VFormat(RE::BSString* a_dst, const char* a_fmt, ...)
-{
-	std::string fmt = "%s";
-	fmt += *Settings::prefix;
-	fmt += "%s";
-	fmt += *Settings::postfix;
+			REL::safe_fill(base + begin, REL::NOP, end - begin);
+			REL::safe_write(base + begin, std::span(p.getCode<const std::byte*>(), p.getSize()));
+		}
 
-	std::va_list args1;
-	va_start(args1, a_fmt);
-	std::va_list args2;
-	va_copy(args2, args1);
-	std::vector<char> buf(std::vsnprintf(0, 0, fmt.c_str(), args1) + 1);
-	va_end(args1);
-	std::vsnprintf(buf.data(), buf.size(), fmt.c_str(), args2);
-	va_end(args2);
+		REL::make_pattern<"48 85 DB 0F 84 ?? ?? ?? ?? 80 3B 00 0F 84 ?? ?? ?? ?? 4C 8B CB 4C 8D 05 ?? ?? ?? ?? BA ?? ?? ?? ?? 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 48 8D 54 24 ?? 48 8B CE E8 ?? ?? ?? ?? EB 79">()
+			.match_or_fail(base + 0x1D0);
+		trampoline.write_call<5>(base + 0x1F6, Hooks::sprintf_s);
 
-	std::string_view view(buf.data(), buf.size());
-	*a_dst = view;
-}
+		REL::make_pattern<"48 83 7F ?? ?? 75 29 83 7F 28 FE 75 23 48 8B CE 48 85 DB 74 15 4C 8B CB 4C 8B 47 10 48 8D 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? EB 3A">()
+			.match_or_fail(base + 0x20A);
+		trampoline.write_call<5>(base + 0x22D, Hooks::VFormat);
 
+		REL::make_pattern<"4D 85 F6 74 2F 49 8B CE E8 ?? ?? ?? ?? 48 8B CE 48 85 DB 74 14 4C 8B C0 4C 8B CB 48 8D 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? EB 0B">()
+			.match_or_fail(base + 0x23A);
+		trampoline.write_call<5>(base + 0x25C, Hooks::VFormat);
 
-void TemperFactorManager::sprintf_s(char* a_buffer, std::size_t a_buffSize, const char* a_fmt, ...)
-{
-	std::string fmt = *Settings::prefix;
-	fmt += "%s";
-	fmt += *Settings::postfix;
-
-	std::va_list args;
-	va_start(args, a_fmt);
-	std::vsnprintf(a_buffer, a_buffSize, fmt.c_str(), args);
-	va_end(args);
-}
-
-
-void TemperFactorManager::InstallHooks()
-{
-	REL::Offset<std::uintptr_t> funcBase(REL::ID(12633));
-
-	auto trampoline = SKSE::GetTrampoline();
-	trampoline->Write5Call(funcBase.GetAddress() + 0x59, &TemperFactorManager::GetTemperFactor);
-	trampoline->Write5Call(funcBase.GetAddress() + 0x1A6, &TemperFactorManager::VFormat);
-	trampoline->Write5Call(funcBase.GetAddress() + 0x177, &TemperFactorManager::VFormat);
-	trampoline->Write5Call(funcBase.GetAddress() + 0x13D, &TemperFactorManager::sprintf_s);
-
-	_MESSAGE("Installed hooks for %s", typeid(TemperFactorManager).name());
-}
-
-
-TemperFactorManager::FormatterMap::FormatterMap() :
-	_map()
-{
-	_map.insert({ "Vanilla", TemperFactorManager::AsVanilla });
-	_map.insert({ "VanillaPlus", TemperFactorManager::AsVanillaPlus });
-	_map.insert({ "PlusN", TemperFactorManager::AsPlusN });
-	_map.insert({ "Internal", TemperFactorManager::AsInternal });
-	_map.insert({ "Custom", TemperFactorManager::AsCustom });
-	_map.insert({ "RomanNumeral", TemperFactorManager::AsRomanNumeral });
-}
-
-
-std::string TemperFactorManager::FormatterMap::operator()(UInt32 a_factor, bool a_isWeapon)
-{
-	auto it = _map.find(*Settings::style);
-	if (it != _map.end()) {
-		return it->second(a_factor, a_isWeapon);
-	} else {
-		return TemperFactorManager::AsVanilla(a_factor, a_isWeapon);
+		logger::debug("installed hooks for temper factor manager");
 	}
 }
-
-
-TemperFactorManager::GMSTCache::GMSTCache() :
-	_map()
-{
-	constexpr std::string_view NAMES[] = {
-		"sHealthDataPrefixWeap1",
-		"sHealthDataPrefixArmo1",
-		"sHealthDataPrefixWeap2",
-		"sHealthDataPrefixArmo2",
-		"sHealthDataPrefixWeap3",
-		"sHealthDataPrefixArmo3",
-		"sHealthDataPrefixWeap4",
-		"sHealthDataPrefixArmo4",
-		"sHealthDataPrefixWeap5",
-		"sHealthDataPrefixArmo5",
-		"sHealthDataPrefixWeap6",
-		"sHealthDataPrefixArmo6"
-	};
-
-	constexpr std::size_t SIZE = std::extent<decltype(NAMES)>::value;
-
-	for (std::size_t i = 0; i < SIZE; ++i) {
-		Insert(std::string(NAMES[i]));
-	}
-}
-
-
-std::string TemperFactorManager::GMSTCache::operator()(std::string_view a_name)
-{
-	auto it = _map.find(a_name);
-	return it != _map.end() ? it->second->GetString() : "";
-}
-
-
-void TemperFactorManager::GMSTCache::Insert(std::string a_name)
-{
-	auto gmst = RE::GameSettingCollection::GetSingleton();
-	auto setting = gmst->GetSetting(a_name.c_str());
-	if (setting) {
-		auto it = _map.insert(std::make_pair(std::move(a_name), setting));
-		assert(it.second);
-	} else {
-		assert(false);
-	}
-}
-
-
-decltype(TemperFactorManager::_stringCache) TemperFactorManager::_stringCache;
-decltype(TemperFactorManager::_formatterMap) TemperFactorManager::_formatterMap;
